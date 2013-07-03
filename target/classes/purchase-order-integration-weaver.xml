@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns = "http://www.springframework.org/schema/beans"
+       xmlns:xsi = "http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:int = "http://www.springframework.org/schema/integration"
+       xsi:schemaLocation = "http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd http://www.springframework.org/schema/integration http://www.springframework.org/schema/integration/spring-integration.xsd">
+
+    <!-- intercept and log every message -->
+    <int:logging-channel-adapter id="logger" level="DEBUG" />
+    <int:wire-tap channel = "logger" />
+
+    <int:channel id = "newMultiplePurchaseOrderChannel" />
+
+    <int:gateway id="purchaseOrderGateway"
+         service-interface="com.rollingstone.spring.integration.po.components.PurchaseOrderAcceptorGateway">
+        <int:method name="acceptPurchaseOrders" request-channel="newMultiplePurchaseOrderChannel" />
+     </int:gateway>
+
+    <int:splitter
+            input-channel="newMultiplePurchaseOrderChannel"
+            output-channel="individualPurchaseOrderChannel" />
+
+    <int:channel id = "individualPurchaseOrderChannel" />
+
+    <int:filter
+        input-channel="individualPurchaseOrderChannel"
+        output-channel="filteredAutomatedPurchaseOrderChannel"
+        ref="purchaseOrderFilter" />
+
+    <int:channel id = "filteredAutomatedPurchaseOrderChannel" />
+
+    <int:recipient-list-router input-channel="filteredAutomatedPurchaseOrderChannel">
+        <int:recipient channel = "foreignPurchaseOrderChannel" selector-expression="payload.foreignPO"/>
+        <int:recipient channel = "localPurchaseOrderChannel" selector-expression="!payload.localPO" />
+        <int:recipient channel = "rateContractPurchaseOrderChannel" selector-expression="!payload.rateContract" />
+    </int:recipient-list-router>
+
+    <int:channel id = "foreignPurchaseOrderChannel" />
+    <int:channel id = "localPurchaseOrderChannel" />
+    <int:channel id = "rateContractPurchaseOrderChannel" />
+    
+
+    <int:transformer
+        input-channel="localPurchaseOrderChannel"
+        output-channel="localTransformedPurchaseOrderChannel"
+        ref="localPurchaseOrderCreator" />
+
+    <int:transformer
+        input-channel="foreignPurchaseOrderChannel"
+        output-channel="foreignTransformedPurchaseOrderChannel"
+        ref="foreignPurchaseOrderCreator" />
+        
+      <int:transformer
+        input-channel="rateContractPurchaseOrderChannel"
+        output-channel="rateContractTransformedPurchaseOrderChannel"
+        ref="rateContractPurchaseOrderCreator" />
+    
+
+    <int:channel id = "foreignTransformedPurchaseOrderChannel">
+        <int:queue capacity="200" />
+    </int:channel>
+    
+    <int:channel id = "localTransformedPurchaseOrderChannel">
+        <int:queue capacity="200" />
+    </int:channel>
+    
+      <int:channel id = "rateContractTransformedPurchaseOrderChannel">
+        <int:queue capacity="200" />
+    </int:channel>
+    
+    <int:service-activator input-channel="foreignTransformedPurchaseOrderChannel" ref="foreignPurchaseOrderProcessor">
+        <int:poller fixed-rate="500" error-channel="failedForeignPOChannel" />
+    </int:service-activator>
+    
+      <int:service-activator input-channel="localTransformedPurchaseOrderChannel" ref="localPurchaseOrderProcessor">
+        <int:poller fixed-rate="500" error-channel="failedLocalPOChannel" />
+    </int:service-activator>
+    
+      <int:service-activator input-channel="rateContractTransformedPurchaseOrderChannel" ref="rateContractPurchaseOrderProcessor">
+        <int:poller fixed-rate="500" error-channel="failedRateContractPOChannel" />
+    </int:service-activator>
+    
+    
+
+    <int:channel id = "failedForeignPOChannel" />
+    
+        <int:channel id = "failedLocalPOChannel" />
+    
+    
+        <int:channel id = "failedRateContractPOChannel" />
+    
+
+    <int:service-activator
+        input-channel="failedForeignPOChannel"
+        ref="failedRateContractPurchaseOrderProcessor" />
+        
+          <int:service-activator
+        input-channel="failedLocalPOChannel"
+        ref="failedLocalPurchaseOrderProcessor" />
+        
+          <int:service-activator
+        input-channel="failedRateContractPOChannel"
+        ref="failedRateContractPurchaseOrderProcessor" />
+        
+        
+
+</beans>
